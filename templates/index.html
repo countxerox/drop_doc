@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Drop Doc Upload</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>Drop Doc</h1>
+      <p class="subtitle">Upload documents by dragging files into the zone or using the browse button.</p>
+
+      <label id="drop-zone" class="drop-zone" for="file-input">
+        <input id="file-input" type="file" name="files" multiple hidden />
+        <p><strong>Drag & drop files here</strong></p>
+        <p>or</p>
+        <button id="browse-btn" type="button">Browse files</button>
+        <p class="small">Allowed: pdf, doc, docx, txt, rtf, odt, md, csv, xls, xlsx, ppt, pptx · Max {{ max_size_mb }}MB per request</p>
+      </label>
+
+      <button id="upload-btn" class="upload-btn" type="button" disabled>Upload selected files</button>
+
+      <section>
+        <h2>Selected files</h2>
+        <ul id="file-list" class="list"></ul>
+      </section>
+
+      <section>
+        <h2>Status</h2>
+        <div id="status" class="status">No uploads yet.</div>
+      </section>
+    </main>
+
+    <script>
+      const dropZone = document.getElementById("drop-zone");
+      const fileInput = document.getElementById("file-input");
+      const browseBtn = document.getElementById("browse-btn");
+      const uploadBtn = document.getElementById("upload-btn");
+      const fileList = document.getElementById("file-list");
+      const status = document.getElementById("status");
+
+      const dt = new DataTransfer();
+
+      const renderFiles = () => {
+        fileList.innerHTML = "";
+        if (dt.files.length === 0) {
+          const item = document.createElement("li");
+          item.textContent = "No files selected.";
+          fileList.appendChild(item);
+          uploadBtn.disabled = true;
+          return;
+        }
+
+        Array.from(dt.files).forEach((file) => {
+          const item = document.createElement("li");
+          item.textContent = `${file.name} (${Math.ceil(file.size / 1024)} KB)`;
+          fileList.appendChild(item);
+        });
+
+        uploadBtn.disabled = false;
+      };
+
+      const syncInputFiles = () => {
+        fileInput.files = dt.files;
+      };
+
+      const addFiles = (files) => {
+        Array.from(files).forEach((file) => dt.items.add(file));
+        syncInputFiles();
+        renderFiles();
+      };
+
+      browseBtn.addEventListener("click", () => fileInput.click());
+
+      fileInput.addEventListener("change", (event) => {
+        addFiles(event.target.files);
+      });
+
+      ["dragenter", "dragover"].forEach((eventName) => {
+        dropZone.addEventListener(eventName, (event) => {
+          event.preventDefault();
+          dropZone.classList.add("active");
+        });
+      });
+
+      ["dragleave", "drop"].forEach((eventName) => {
+        dropZone.addEventListener(eventName, (event) => {
+          event.preventDefault();
+          dropZone.classList.remove("active");
+        });
+      });
+
+      dropZone.addEventListener("drop", (event) => {
+        addFiles(event.dataTransfer.files);
+      });
+
+      uploadBtn.addEventListener("click", async () => {
+        if (!dt.files.length) {
+          return;
+        }
+
+        const formData = new FormData();
+        Array.from(dt.files).forEach((file) => formData.append("files", file));
+
+        status.textContent = "Uploading...";
+        uploadBtn.disabled = true;
+
+        try {
+          const response = await fetch("/upload", {
+            method: "POST",
+            body: formData,
+          });
+          const payload = await response.json();
+
+          if (!response.ok) {
+            status.textContent = payload.error || "Upload failed.";
+            uploadBtn.disabled = false;
+            return;
+          }
+
+          const uploadedNames = payload.uploaded.map((item) => item.file).join(", ");
+          const rejectedSummary = payload.rejected.length
+            ? ` Rejected: ${payload.rejected.map((item) => item.file).join(", ")}`
+            : "";
+
+          status.textContent = `Uploaded: ${uploadedNames}.${rejectedSummary}`;
+
+          dt.items.clear();
+          syncInputFiles();
+          renderFiles();
+        } catch (error) {
+          status.textContent = "Network error while uploading files.";
+          uploadBtn.disabled = false;
+        }
+      });
+
+      renderFiles();
+    </script>
+  </body>
+</html>
